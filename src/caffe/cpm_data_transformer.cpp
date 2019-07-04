@@ -1,7 +1,7 @@
 #ifdef USE_OPENCV
 #include <opencv2/core/core.hpp>
 //#include <opencv2/opencv.hpp>
-#include <opencv2/contrib/contrib.hpp>
+//#include <opencv2/contrib/contrib.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #endif  // USE_OPENCV
 
@@ -214,7 +214,22 @@ void CPMDataTransformer<Dtype>::TransformJoints(Joints& j) {
       }
     }
   }
-
+  else if(np == 77){
+    jo.joints.resize(np);
+    jo.isVisible.resize(np);
+    for(int i=0;i<25;i++){
+      jo.joints[i] = j.joints[i];
+      if(j.isVisible[i]==2){
+        jo.isVisible[i] = 2;
+      }
+      else if(j.isVisible[i]==3){
+        jo.isVisible[i] = 3;
+      }
+      else {
+        jo.isVisible[i] = j.isVisible[i] && j.isVisible[i];
+      }
+    }
+  }
   j = jo;
 }
 
@@ -365,6 +380,7 @@ template<typename Dtype> void CPMDataTransformer<Dtype>::Transform(const Datum& 
 template<typename Dtype> void CPMDataTransformer<Dtype>::Transform_nv(const Datum& datum, Blob<Dtype>* transformed_data, Blob<Dtype>* transformed_label, int cnt) {
   //std::cout << "Function 2 is used"; std::cout.flush();
   const int datum_channels = datum.channels();
+  //LOG(INFO) << "datum shape: " << datum.channels() << " " << datum.height() << " " << datum.width();
   //const int datum_height = datum.height();
   //const int datum_width = datum.width();
 
@@ -923,6 +939,20 @@ void CPMDataTransformer<Dtype>::swapLeftRight(Joints& j) {
       j.isVisible[li] = temp_v;
     }
   }
+  else if (np == 77){
+    int right[11] = {3,4,5,10,11,12,16,18,23,24,25};
+    int left[11] = {6,7,8,13,14,15,17,19,20,21,22};
+    for(int i=0; i<11;i++){
+      int ri = right[i] - 1;
+      int li = left[i] - 1;
+      Point2f temp = j.joints[ri];
+      j.joints[ri] = j.joints[li];
+      j.joints[li] = temp;
+      int temp_v = j.isVisible[ri];
+      j.isVisible[ri] = j.isVisible[li];
+      j.isVisible[li] = temp_v;
+    }
+  }
 }
 
 template<typename Dtype>
@@ -1042,6 +1072,7 @@ void CPMDataTransformer<Dtype>::putVecPeaks(Dtype* entryX, Dtype* entryY, Mat& c
   //int thre = 4;
   centerB = centerB*0.125;
   centerA = centerA*0.125;
+    
   Point2f bc = centerB - centerA;
   float norm_bc = sqrt(bc.x*bc.x + bc.y*bc.y);
   bc.x = bc.x /norm_bc;
@@ -1205,7 +1236,67 @@ void CPMDataTransformer<Dtype>::generateLabelMap(Dtype* transformed_label, Mat& 
     }
     //LOG(INFO) << "background put";
   }
+
+
+  // For body 25 model
+  else if (np == 77){
+    for(int i=0; i<25; i++){
+      Point2f center = meta.joint_self.joints[i];
+      if(meta.joint_self.isVisible[i] <= 1){
+        putGaussianMaps(transformed_label + (i+np+53)*channelOffset, center, param_.stride(), grid_x, grid_y, param_.sigma());
+      }
+      for (int j=0; j < meta.numOtherPeople; j++){
+        Point2f center = meta.joint_others[j].joints[i];
+        if(meta.joint_others[j].isVisible[i] <= 1){
+          putGaussianMaps(transformed_label + (i+np+53)*channelOffset, center, param_.stride(), grid_x, grid_y, param_.sigma());
+        }
+      }
+    }
+
+    // int mid_1[26] = {2, 2, 2, 3, 4, 6, 7,  9, 10, 11,  9, 13, 14, 2,  1, 16,  1, 17,  3,  6, 15, 20, 15, 12, 23, 12};
+    // int mid_2[26] = {9, 3, 6, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15, 1, 16, 18, 17, 19, 18, 19, 20, 21, 22, 23, 24, 25};
+    
+    // int mid_1[26] = {2, 10, 11, 3, 4, 13, 7, 2,  9,  3,  3, 2, 6, 14,  6, 1,  1,  1, 16, 17, 15, 20, 15, 12, 23, 12};
+    // int mid_2[26] = {9, 11, 12, 4, 5, 14, 8, 3, 10, 18, 18, 6, 7, 15, 19, 2, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25};
+    int mid_1[26] = {2, 10, 11,  9,  9, 13, 14, 2, 3, 4,  3, 2, 6, 7,  6, 2,  1,  1, 16, 17, 15, 20, 15, 12, 23, 12};
+    int mid_2[26] = {9, 11, 12, 10, 13, 14, 15, 3, 4, 5, 18, 6, 7, 8, 19, 1, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25};
+    
+    int thre = 1;
+
+    for(int i=0;i<26;i++){
+      Mat count = Mat::zeros(grid_y, grid_x, CV_8UC1);
+      Joints jo = meta.joint_self;
+      if(jo.isVisible[mid_1[i]-1]<=1 && jo.isVisible[mid_2[i]-1]<=1){
+        //putVecPeaks
+        putVecMaps(transformed_label + (np+ 1+ 2*i)*channelOffset, transformed_label + (np+ 2+ 2*i)*channelOffset, 
+                  count, jo.joints[mid_1[i]-1], jo.joints[mid_2[i]-1], param_.stride(), grid_x, grid_y, param_.sigma(), thre); //self
+      }
+
+      for(int j = 0; j < meta.numOtherPeople; j++){ //for every other person
+        Joints jo2 = meta.joint_others[j];
+        if(jo2.isVisible[mid_1[i]-1]<=1 && jo2.isVisible[mid_2[i]-1]<=1){
+          //putVecPeaks
+          putVecMaps(transformed_label + (np+ 1+ 2*i)*channelOffset, transformed_label + (np+ 2+ 2*i)*channelOffset, 
+                  count, jo2.joints[mid_1[i]-1], jo2.joints[mid_2[i]-1], param_.stride(), grid_x, grid_y, param_.sigma(), thre); //self
+        }
+      }
+    }
+
+    //put background channel
+    for (int g_y = 0; g_y < grid_y; g_y++){
+      for (int g_x = 0; g_x < grid_x; g_x++){
+        float maximum = 0;
+        //second background channel
+        for (int i = np+53; i < np+78; i++){
+          maximum = (maximum > transformed_label[i*channelOffset + g_y*grid_x + g_x]) ? maximum : transformed_label[i*channelOffset + g_y*grid_x + g_x];
+        }
+        transformed_label[(2*np+1)*channelOffset + g_y*grid_x + g_x] = max(1.0-maximum, 0.0);
+      }
+    }
+    //LOG(INFO) << "background put";
+  }
   
+
   else if (np == 43){
     for (int i = 0; i < 15; i++){
       Point2f center = meta.joint_self.joints[i];

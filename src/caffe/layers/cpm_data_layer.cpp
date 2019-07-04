@@ -135,6 +135,7 @@ void CPMDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
     // get a blob
     timer.Start();
     Datum& datum = *(reader_.full().pop("Waiting for data"));
+    // LOG(INFO) << "datum shape: " << datum.channels() << " " << datum.height() << " " << datum.width();
     deque_time += timer.MicroSeconds();
 
     timer.Start();
